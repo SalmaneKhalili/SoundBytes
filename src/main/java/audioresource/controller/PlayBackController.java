@@ -24,8 +24,6 @@ import java.util.concurrent.locks.LockSupport;
  * @author Salmane Khalili
  */
 public class PlayBackController {
-
-
     private final Object lock = new Object();
     private static final int TRANSFER_SIZE = 4096;
     private static final int WINDOW_SIZE = 1000;
@@ -103,9 +101,11 @@ public class PlayBackController {
             recordLatency(latencyMicros);
             ringBuffer.write(transfer, 0, bytesRead);
 
-            while (ringBuffer.available() > 0) {
-                int chunk = Math.min(ringBuffer.available(), transfer.length);
-                int s = ringBuffer.read(transfer, 0, chunk);
+            int frameSize = decoder.getAudioFormat().getFrameSize();
+            while (ringBuffer.available() >= frameSize) {
+                int frames = ringBuffer.available() / frameSize;
+                int bytesToRead = Math.min(frames * frameSize, transfer.length);
+                int s = ringBuffer.read(transfer, 0, bytesToRead);
                 audioOutput.write(transfer, 0, s);
             }
         }

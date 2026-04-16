@@ -99,4 +99,21 @@ public class FileSource implements Source {
             throw new RuntimeException(e);
         }
     }
+
+    @Override
+    public void close() {
+        try {
+            if (byteChannel != null && byteChannel.isOpen()) {
+                byteChannel.close();
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+    }
+
+    @Override
+    public boolean isSeekable(){
+        return true;
+    }
 }

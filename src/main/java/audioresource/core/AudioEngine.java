@@ -5,9 +5,13 @@ import audioresource.controller.PlayBackController;
 import audioresource.decoder.Decoder;
 import audioresource.decoder.WAVDecoder;
 import audioresource.listener.AudioListener;
+import audioresource.source.FileSource;
+import audioresource.source.Source;
+import audioresource.source.TCPSource;
 
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.LineUnavailableException;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -54,14 +58,27 @@ public class AudioEngine implements AutoCloseable {
      * @throws IllegalArgumentException if the file cannot be loaded or the format is unsupported
      */
     public void load(String filePath, String type) {
-        try {
+
             switch (type) {
-                case "WAV" -> decoder = new WAVDecoder(filePath);
+                case "WAV" -> {
+                    try {
+                        if (filePath.startsWith("tcp://")) {
+                            String[] parts = filePath.substring(6).split(":");
+                            String host = parts[0];
+
+                            int port = Integer.parseInt(parts[1]);
+                            Source source = new TCPSource(host, port);
+
+                            decoder = new WAVDecoder(source);
+                        } else {
+                            Source source = new FileSource(filePath);
+                            decoder = new WAVDecoder(source);
+                        }
+                    } catch (Exception e) {throw new RuntimeException(e);}
+                }
                 case "MP3" -> throw new IllegalArgumentException("MP3 not supported");
                 default -> throw new IllegalArgumentException("Unknown format: " + type);
-            }
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to load: " + filePath, e);
+
         }
     }
 

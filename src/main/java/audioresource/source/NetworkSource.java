@@ -50,4 +50,14 @@ public class NetworkSource implements Source {
     public long getPosition() {
         return 0;
     }
+
+    @Override
+    public void close() {
+
+    }
+
+    @Override
+    public boolean isSeekable(){
+        return false;
+    }
 }

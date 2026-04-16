@@ -40,4 +40,8 @@ public interface Source {
      * @return current position
      */
     long getPosition();
+
+    void close();
+
+    boolean isSeekable();
 }

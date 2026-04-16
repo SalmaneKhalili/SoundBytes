@@ -45,17 +45,11 @@ public class TestEngine {
             });
 
             System.out.println("Loading file...");
-            engine.load("/home/salmane/Downloads/memphis-trap-memphis-trap-wav-349366.wav", "WAV");
+            engine.load("tcp://localhost:8888", "WAV");
 
             engine.play();
 
-            Thread.sleep(3000);
-            engine.pause();
 
-            Thread.sleep(2000);
-            engine.resume();
-            Thread.sleep(10000);
-            engine.seek(50000000);
 
             engine.waitUntilFinished();
         }

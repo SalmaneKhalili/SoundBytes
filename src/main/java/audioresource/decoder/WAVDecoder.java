@@ -1,6 +1,5 @@
 package audioresource.decoder;
 
-import audioresource.source.FileSource;
 import audioresource.source.Source;
 import audioresource.dto.FMT;
 
@@ -23,7 +22,7 @@ import java.nio.charset.StandardCharsets;
  */
 public class WAVDecoder implements Decoder {
 
-    private final Source fileSource;
+    private final Source source;
     private FMT fmtData;
     private long audioStartOffset;
     private long audioDataSize;
@@ -36,12 +35,12 @@ public class WAVDecoder implements Decoder {
      * @param filePath path to a valid WAV file
      * @throws Exception if the file is not a valid WAV or an I/O error occurs
      */
-    public WAVDecoder(String filePath) throws Exception {
-        this.fileSource = new FileSource(filePath);
+    public WAVDecoder(Source source) throws Exception {
+        this.source = source;
         ByteBuffer headerBucket = ByteBuffer.allocate(12);
         headerBucket.order(ByteOrder.LITTLE_ENDIAN);
 
-        fileSource.read(headerBucket);
+        this.source.read(headerBucket);
         headerBucket.flip();
 
         if (!"RIFF".equals(readString(headerBucket))) {
@@ -59,7 +58,7 @@ public class WAVDecoder implements Decoder {
 
         while (!foundData) {
             walker.clear();
-            int bytesRead = fileSource.read(walker);
+            int bytesRead = this.source.read(walker);
             if (bytesRead < 8) break;
 
             walker.flip();
@@ -69,13 +68,25 @@ public class WAVDecoder implements Decoder {
             if ("fmt ".equals(chunkId)) {
                 parseFormat(chunkSize);
             } else if ("data".equals(chunkId)) {
-                this.audioStartOffset = fileSource.getPosition();
+                this.audioStartOffset = this.source.getPosition();
                 this.audioDataSize = chunkSize;
                 this.audioDataRemaining = chunkSize;
                 foundData = true;
             } else {
                 long skipAmount = (chunkSize % 2 == 0) ? chunkSize : chunkSize + 1; //RIFF standards require data chunks to start on an even byte, known as data alignment/padding, hence why im adding 1 to the chunksize on odd chunks
-                fileSource.seek(fileSource.getPosition() + skipAmount);
+                if (source.isSeekable()){
+                    this.source.seek(this.source.getPosition() + skipAmount);
+                } else {
+                    byte[] buffer = new byte[4096];
+                    long remaining = skipAmount;
+                    while (remaining > 0) {
+                        int toRead = (int) Math.min(remaining, buffer.length);
+                        ByteBuffer bb = ByteBuffer.wrap(buffer, 0, toRead);
+                        source.read(bb);
+                        remaining -= toRead;
+                    }
+                }
+
             }
         }
 
@@ -123,7 +134,7 @@ public class WAVDecoder implements Decoder {
     /** Parses the fmt chunk and stores the data in {@link #fmtData}. */
     private void parseFormat(int chunkSize) {
         ByteBuffer fmtBuffer = ByteBuffer.allocate(chunkSize).order(ByteOrder.LITTLE_ENDIAN);
-        fileSource.read(fmtBuffer);
+        source.read(fmtBuffer);
         fmtBuffer.flip();
 
         this.fmtData = new FMT(
@@ -156,7 +167,7 @@ public class WAVDecoder implements Decoder {
         long framedOffset = offset - (offset % fmtData.blockAlign());
         framedOffset = Math.min(framedOffset, audioDataSize);
         audioDataRemaining = audioDataSize - framedOffset;
-        fileSource.seek(audioStartOffset + framedOffset);
+        source.seek(audioStartOffset + framedOffset);
         return (framedOffset * 1_000_000L) / fmtData.byteRate();
     }
 
@@ -191,7 +202,7 @@ public class WAVDecoder implements Decoder {
         int originalLimit = buffer.limit();
         buffer.limit(buffer.position() + limit);
         try {
-            int readSize = fileSource.read(buffer);
+            int readSize = source.read(buffer);
             if (readSize > 0) {
                 this.audioDataRemaining -= readSize;
             }
@@ -207,7 +218,7 @@ public class WAVDecoder implements Decoder {
      * @return current file position
      */
     public long getPosition() {
-        return fileSource.getPosition();
+        return source.getPosition();
     }
 
     /**
