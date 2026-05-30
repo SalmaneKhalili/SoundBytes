@@ -40,6 +40,7 @@ public class WAVDecoder implements Decoder {
         ByteBuffer headerBucket = ByteBuffer.allocate(12);
         headerBucket.order(ByteOrder.LITTLE_ENDIAN);
 
+        this.source.open();
         this.source.read(headerBucket);
         headerBucket.flip();
 

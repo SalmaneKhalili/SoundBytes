@@ -45,12 +45,10 @@ public class TestEngine {
             });
 
             System.out.println("Loading file...");
-            engine.load("tcp://localhost:8888", "WAV");
+            engine.load("/home/salmane/Downloads/test3.wav", "WAV");
+            // engine.load("tcp://localhost:8888", "WAV");
 
             engine.play();
-
-
-
             engine.waitUntilFinished();
         }
         System.out.println("\nPlayback complete.");

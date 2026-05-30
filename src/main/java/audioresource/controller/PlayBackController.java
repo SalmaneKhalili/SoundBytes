@@ -59,6 +59,9 @@ public class PlayBackController {
         }
     }
 
+    public AudioStatus getStatus(){
+        return status.get();
+    }
     /**
      * Periodically broadcasts progress (at most every 100 ms).
      *
@@ -79,6 +82,7 @@ public class PlayBackController {
     }
     private void produce(){
         byte[] transfer = new byte[TRANSFER_SIZE];
+        long lastUpdate = 0;
         while (status.get() == AudioStatus.PLAYING || status.get() == AudioStatus.PAUSED){
             long start = System.nanoTime();
             int n = decoder.read(ByteBuffer.wrap(transfer));
@@ -95,6 +99,8 @@ public class PlayBackController {
                Thread.currentThread().interrupt();
                return;
             }
+            long now = System.currentTimeMillis();
+            lastUpdate = getLastUpdate(now, lastUpdate);
         }
     }
 
@@ -106,7 +112,7 @@ public class PlayBackController {
                     Thread.sleep(100);
                     continue;
                 }
-                byte[] chunk = queue.poll(100, TimeUnit.MILLISECONDS);
+                byte[] chunk = queue.poll(10, TimeUnit.MILLISECONDS);
                 if (chunk == null) continue;
                 audioOutput.write(chunk, 0, chunk.length);
             }

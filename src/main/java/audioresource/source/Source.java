@@ -11,7 +11,7 @@ import java.nio.ByteBuffer;
  *
  * @author Salmane Khalili
  * @see FileSource
- * @see NetworkSource
+
  */
 public interface Source {
 

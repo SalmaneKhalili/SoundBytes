@@ -41,11 +41,10 @@ public class AudioEngine implements AutoCloseable {
     private Decoder decoder;
     private PlayBackController controller;
     private final List<AudioListener> listeners = new CopyOnWriteArrayList<>();
-    private static final int RING_BUFFER_CAPACITY = 65536;
 
     /** Creates a new AudioEngine with an empty ring buffer. */
     public AudioEngine() {
-            queue = new ArrayBlockingQueue(16);
+            queue = new ArrayBlockingQueue<byte[]>(16);
     }
 
     /**
@@ -67,7 +66,7 @@ public class AudioEngine implements AutoCloseable {
 
                             int port = Integer.parseInt(parts[1]);
                             Source source = new TCPSource(host, port);
-
+                            source.open();
                             decoder = new WAVDecoder(source);
                         } else {
                             Source source = new FileSource(filePath);
