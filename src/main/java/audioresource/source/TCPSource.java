@@ -8,30 +8,24 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
 public class TCPSource implements Source{
-    private Socket socket;
-    private InputStream inputStream;
+
     private SocketChannel channel;
+    private long position = 0;
     private String host;
     private int port;
-    private long position = 0;
-    private int bytesRead = 0;
+
 
 
     public TCPSource (String host, int port) {
-        try {
-            channel = SocketChannel.open(new InetSocketAddress(host, port));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        this.host = host;
+        this.port = port;
     }
     @Override
     public boolean isSeekable(){return false;}
     @Override
     public void open() {
-
         try {
-            socket = new Socket(host, port);
-            inputStream = socket.getInputStream();
+            channel = SocketChannel.open(new InetSocketAddress(host, port));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -55,8 +49,8 @@ public class TCPSource implements Source{
     @Override
     public void close() {
         try{
-            if (socket != null) {
-                socket.close();
+            if (channel != null) {
+                channel.close();
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
