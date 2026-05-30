@@ -1,6 +1,5 @@
 package audioresource.core;
 
-import audioresource.buffer.RingBuffer;
 import audioresource.controller.PlayBackController;
 import audioresource.decoder.Decoder;
 import audioresource.decoder.WAVDecoder;
@@ -11,8 +10,8 @@ import audioresource.source.TCPSource;
 
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.LineUnavailableException;
-import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -38,7 +37,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class AudioEngine implements AutoCloseable {
 
 
-    private final RingBuffer ringBuffer;
+    private final ArrayBlockingQueue<byte[]> queue;
     private Decoder decoder;
     private PlayBackController controller;
     private final List<AudioListener> listeners = new CopyOnWriteArrayList<>();
@@ -46,7 +45,7 @@ public class AudioEngine implements AutoCloseable {
 
     /** Creates a new AudioEngine with an empty ring buffer. */
     public AudioEngine() {
-        ringBuffer = new RingBuffer(RING_BUFFER_CAPACITY);
+            queue = new ArrayBlockingQueue(16);
     }
 
     /**
@@ -100,7 +99,7 @@ public class AudioEngine implements AutoCloseable {
                 AudioSystem.getSourceDataLine(decoder.getAudioFormat()),
                 decoder.getAudioFormat()
         );
-        controller = new PlayBackController(decoder, ringBuffer, audioOutput);
+        controller = new PlayBackController(decoder, queue, audioOutput);
         for (AudioListener listener : listeners) {
             controller.addListener(listener);
         }

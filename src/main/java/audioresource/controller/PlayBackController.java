@@ -9,7 +9,8 @@ import audioresource.listener.AudioListener;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -32,15 +33,16 @@ public class PlayBackController {
     private int readCount = 0;
     private volatile long lastP50 = 0;
     private volatile long lastP95 = 0;
+    private volatile boolean producerDone = false;
 
 
     private final List<AudioListener> listeners = new CopyOnWriteArrayList<>();
     private Thread workerThread;
     private final Decoder decoder;
-    private final RingBuffer ringBuffer;
+    private ExecutorService executor;
+    private final ArrayBlockingQueue<byte[]> queue;
     private final AudioOutput audioOutput;
-    private volatile AudioStatus status;
-
+    private final AtomicReference<AudioStatus> status = new AtomicReference<>(AudioStatus.STOPPED);
     /**
      * Constructs a new playback controller.
      *
@@ -48,9 +50,9 @@ public class PlayBackController {
      * @param ringBuffer  the ring buffer for PCM data
      * @param audioOutput the audio output device
      */
-    public PlayBackController(Decoder decoder, RingBuffer ringBuffer, AudioOutput audioOutput) {
+    public PlayBackController(Decoder decoder, ArrayBlockingQueue<byte[]> queue , AudioOutput audioOutput) {
         this.decoder = decoder;
-        this.ringBuffer = ringBuffer;
+        this.queue = queue;
         this.audioOutput = audioOutput;
     }
 
@@ -79,37 +81,36 @@ public class PlayBackController {
         }
         return lastUpdate;
     }
-
-    /**
-     * Reads a chunk of PCM from the decoder, writes it to the ring buffer,
-     * and then drains as much as possible to the audio output.
-     *
-     * @param transfer temporary byte array used as a transfer buffer
-     * @return {@code true} if the decoder reached EOF, {@code false} otherwise
-     */
-    private boolean consumePCM(byte[] transfer) {
-        int bytesRead;
-        synchronized (lock) {
-            long start = System.nanoTime();
-            bytesRead = decoder.read(ByteBuffer.wrap(transfer));
-            long end = System.nanoTime();
-            if (bytesRead == -1) {
+    private void produce(){
+        byte[] transfer = new byte[TRANSFER_SIZE];
+        while (status.get() == AudioStatus.PLAYING || status.get() == AudioStatus.PAUSED){
+            int n = decoder.read(ByteBuffer.wrap(transfer));
+            if (n == -1){
+                producerDone = true;
                 broadcastStatus(AudioStatus.FINISHED);
-                return true;
+                return;
             }
-            long latencyMicros = (end - start) / 1000;
-            recordLatency(latencyMicros);
-            ringBuffer.write(transfer, 0, bytesRead);
-
-            int frameSize = decoder.getAudioFormat().getFrameSize();
-            while (ringBuffer.available() >= frameSize) {
-                int frames = ringBuffer.available() / frameSize;
-                int bytesToRead = Math.min(frames * frameSize, transfer.length);
-                int s = ringBuffer.read(transfer, 0, bytesToRead);
-                audioOutput.write(transfer, 0, s);
+            try {
+                queue.put(Arrays.copyOf(transfer, n));
+            } catch (InterruptedException e) {
+               Thread.currentThread().interrupt();
+               return;
             }
         }
-        return false;
+    }
+
+    private void consume() {
+        audioOutput.play();
+        while(status.get() == AudioStatus.PLAYING && !producerDone){
+            try {
+                byte[] chunk = queue.poll(100, TimeUnit.MILLISECONDS);
+                if (chunk == null) continue;
+                audioOutput.write(chunk,0, chunk.length);
+            } catch (InterruptedException e) {
+               Thread.currentThread().interrupt();
+               return;
+            }
+        }
     }
 
     /**
@@ -156,7 +157,7 @@ public class PlayBackController {
      * @return buffer fill percent
      */
     public int getBufferFillPercent() {
-        return (ringBuffer.available() * 100) / ringBuffer.getCapacity();
+        return (queue.remainingCapacity() * 100) / queue.size();
     }
 
     /**
@@ -164,62 +165,32 @@ public class PlayBackController {
      * The worker thread reads PCM data and writes to the audio output until stopped or EOF.
      */
     public void play() {
-        if (workerThread != null && workerThread.isAlive()) {
-            stop();
-            try {
-                workerThread.join(500);
-            } catch (InterruptedException ignored) {
-            }
-        }
-        status = AudioStatus.PLAYING;
-        broadcastStatus(AudioStatus.PLAYING);
-        workerThread = new Thread(() -> {
-            try {
-                audioOutput.play();
-                byte[] transfer = new byte[TRANSFER_SIZE];
-                long lastUpdate = 0;
-                while (status != AudioStatus.STOPPED) {
-                    while (status == AudioStatus.PAUSED || status == AudioStatus.STOPPED) {
-                        LockSupport.park();
-                    }
-                    if (status == AudioStatus.STOPPED || consumePCM(transfer)) break;
-                    long now = System.currentTimeMillis();
-                    lastUpdate = getLastUpdate(now, lastUpdate);
-                }
-                audioOutput.close();
-            } catch (Exception e) {
-                for (AudioListener l : listeners) {
-                    l.onError(e);
-                }
-            }
-        });
-        workerThread.start();
+        if (!status.compareAndSet(AudioStatus.STOPPED, AudioStatus.PLAYING)){return;}
+        executor = Executors.newVirtualThreadPerTaskExecutor();
+        executor.submit(this::produce);
+        executor.submit(this::consume);
     }
 
     /** Pauses playback. The worker thread remains alive but will not consume more data. */
     public void pause() {
-        status = AudioStatus.PAUSED;
-        if (audioOutput != null) audioOutput.pause();
+        status.set(AudioStatus.PAUSED);
+        audioOutput.pause();
         broadcastStatus(AudioStatus.PAUSED);
     }
 
     /** Resumes playback after a pause. */
     public void resume() {
-        status = AudioStatus.PLAYING;
-        if (audioOutput != null) {
-            audioOutput.play();
-            if (workerThread != null) {
-                LockSupport.unpark(workerThread);
-            }
-        }
-        broadcastStatus(AudioStatus.PLAYING);
+        status.set(AudioStatus.PLAYING);
+        audioOutput.play();
     }
 
     /** Stops playback permanently and allows the worker thread to terminate. */
     public void stop() {
-        status = AudioStatus.STOPPED;
-        if (workerThread != null) {
-            LockSupport.unpark(workerThread);
+        status.set(AudioStatus.STOPPED);
+        if (executor != null) {
+            executor.shutdownNow();
+            try { executor.awaitTermination(1, TimeUnit.SECONDS); }
+            catch (InterruptedException ignored) {}
         }
         broadcastStatus(AudioStatus.STOPPED);
     }
@@ -242,7 +213,7 @@ public class PlayBackController {
     public void seek(long microseconds) {
         synchronized (lock) {
             decoder.seek(microseconds);
-            ringBuffer.clear();
+            queue.clear();
             if (audioOutput != null) audioOutput.flush();
         }
     }
