@@ -2,6 +2,7 @@ package decoders;
 
 import audioresource.dto.FMT;
 import audioresource.decoder.WAVDecoder;
+import audioresource.source.FileSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,7 +18,7 @@ public class WAVDecoderTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        decoder = new WAVDecoder(TEST_FILE);
+        decoder = new WAVDecoder(new FileSource(TEST_FILE));
     }
 
     @Test

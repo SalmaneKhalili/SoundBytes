@@ -1,6 +1,5 @@
 package audioresource.controller;
 
-import audioresource.buffer.RingBuffer;
 import audioresource.core.AudioOutput;
 import audioresource.decoder.Decoder;
 import audioresource.dto.AudioStatus;
@@ -11,11 +10,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 
 /**
  * Orchestrates the audio playback loop, connecting a {@link Decoder},
- * a {@link RingBuffer}, and an {@link AudioOutput}.
+ *  and an {@link AudioOutput}.
  * <p>
  * Runs a dedicated worker thread that reads PCM data from the decoder,
  * fills the ring buffer, writes to the audio output, and reports progress
@@ -25,7 +23,6 @@ import java.util.concurrent.locks.LockSupport;
  * @author Salmane Khalili
  */
 public class PlayBackController {
-    private final Object lock = new Object();
     private static final int TRANSFER_SIZE = 4096;
     private static final int WINDOW_SIZE = 1000;
     private final long[] latencies = new long[WINDOW_SIZE];
@@ -37,7 +34,6 @@ public class PlayBackController {
 
 
     private final List<AudioListener> listeners = new CopyOnWriteArrayList<>();
-    private Thread workerThread;
     private final Decoder decoder;
     private ExecutorService executor;
     private final ArrayBlockingQueue<byte[]> queue;
@@ -47,7 +43,7 @@ public class PlayBackController {
      * Constructs a new playback controller.
      *
      * @param decoder     the audio decoder
-     * @param ringBuffer  the ring buffer for PCM data
+     * @param queue  the queue for PCM data
      * @param audioOutput the audio output device
      */
     public PlayBackController(Decoder decoder, ArrayBlockingQueue<byte[]> queue , AudioOutput audioOutput) {
@@ -84,12 +80,15 @@ public class PlayBackController {
     private void produce(){
         byte[] transfer = new byte[TRANSFER_SIZE];
         while (status.get() == AudioStatus.PLAYING || status.get() == AudioStatus.PAUSED){
+            long start = System.nanoTime();
             int n = decoder.read(ByteBuffer.wrap(transfer));
+            long end = System.nanoTime();
             if (n == -1){
                 producerDone = true;
                 broadcastStatus(AudioStatus.FINISHED);
                 return;
             }
+            recordLatency((end - start) / 1000);
             try {
                 queue.put(Arrays.copyOf(transfer, n));
             } catch (InterruptedException e) {
@@ -101,15 +100,20 @@ public class PlayBackController {
 
     private void consume() {
         audioOutput.play();
-        while(status.get() == AudioStatus.PLAYING && !producerDone){
-            try {
+        try {
+            while (status.get() != AudioStatus.STOPPED && (!producerDone || !queue.isEmpty())) {
+                if (status.get() == AudioStatus.PAUSED) {
+                    Thread.sleep(100);
+                    continue;
+                }
                 byte[] chunk = queue.poll(100, TimeUnit.MILLISECONDS);
                 if (chunk == null) continue;
-                audioOutput.write(chunk,0, chunk.length);
-            } catch (InterruptedException e) {
-               Thread.currentThread().interrupt();
-               return;
+                audioOutput.write(chunk, 0, chunk.length);
             }
+        } catch (InterruptedException e) {
+           Thread.currentThread().interrupt();
+        } finally {
+            audioOutput.close();
         }
     }
 
@@ -157,7 +161,8 @@ public class PlayBackController {
      * @return buffer fill percent
      */
     public int getBufferFillPercent() {
-        return (queue.remainingCapacity() * 100) / queue.size();
+        int cap = queue.remainingCapacity() + queue.size();
+        return (cap == 0)? 0 : (queue.size() * 100) / cap;
     }
 
     /**
@@ -211,11 +216,9 @@ public class PlayBackController {
      * @param microseconds target position from the start of audio
      */
     public void seek(long microseconds) {
-        synchronized (lock) {
             decoder.seek(microseconds);
             queue.clear();
             if (audioOutput != null) audioOutput.flush();
-        }
     }
 
     /**
@@ -224,15 +227,15 @@ public class PlayBackController {
      * @throws InterruptedException if the waiting thread is interrupted
      */
     public void waitUntilFinished() throws InterruptedException {
-        if (workerThread != null) workerThread.join();
+        if (executor != null) executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
     }
 
     /** Stops playback, waits for the worker thread to finish, and closes the audio output. */
     public void close() {
         stop();
-        if (workerThread != null) {
+        if (executor != null) {
             try {
-                workerThread.join(500);
+                executor.awaitTermination(500, TimeUnit.MILLISECONDS);
             } catch (InterruptedException ignored) {
             }
         }
