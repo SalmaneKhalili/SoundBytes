@@ -44,9 +44,7 @@ public class FileSource implements Source {
         try {
             Path path = file.toPath();
             this.byteChannel = Files.newByteChannel(path,
-                    StandardOpenOption.READ,
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.CREATE);
+                    StandardOpenOption.READ);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
