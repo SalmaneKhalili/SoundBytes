@@ -10,7 +10,7 @@ public enum AudioStatus {
     PLAYING,
     PAUSED,
     STOPPED,
-    FINISHED
+    FINISHED;
     public boolean canTransitionTo(AudioStatus next) {
         return switch (this){
             case STOPPED -> next == PLAYING;
