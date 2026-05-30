@@ -61,7 +61,7 @@ public class JavaSoundAdapter implements AudioOutput {
     /** Flushes any buffered data from the line (discards it). */
     @Override
     public void drain() {
-        dataLine.flush();
+        dataLine.drain();
     }
 
     /** Stops the audio line (pauses playback). */
@@ -73,7 +73,8 @@ public class JavaSoundAdapter implements AudioOutput {
     /** Waits for all currently queued data to be played (drains the line). */
     @Override
     public void flush() {
-        dataLine.drain();
+        dataLine.flush();
+
     }
 
     /**
